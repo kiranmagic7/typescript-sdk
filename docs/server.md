@@ -478,7 +478,7 @@ For runnable examples, see [`elicitationFormExample.ts`](https://github.com/mode
 
 ### Roots
 
-Roots let a tool handler discover the client's workspace directories — for example, to scope a file search or identify project boundaries (see [Roots](https://modelcontextprotocol.io/docs/learn/client-concepts#roots) in the MCP overview). Call {@linkcode @modelcontextprotocol/server!server/server.Server#listRoots | server.server.listRoots()} (requires the client to declare the `roots` capability):
+Roots let a tool handler discover the client's workspace directories — for example, to scope a file search or identify project boundaries (see [Roots](https://modelcontextprotocol.io/docs/learn/client-concepts#roots) in the MCP overview). Call `ctx.mcpReq.listRoots()` inside the handler (requires the client to declare the `roots` capability). This works under both the pre-2026 connection model and the 2026 stateless model:
 
 ```ts source="../examples/server/src/serverGuide.examples.ts#registerTool_roots"
 server.registerTool(
@@ -487,8 +487,8 @@ server.registerTool(
         description: 'List files across all workspace roots',
         inputSchema: z.object({})
     },
-    async (_args, _ctx): Promise<CallToolResult> => {
-        const { roots } = await server.server.listRoots();
+    async (_args, ctx): Promise<CallToolResult> => {
+        const { roots } = await ctx.mcpReq.listRoots();
         const summary = roots.map(r => `${r.name ?? r.uri}: ${r.uri}`).join('\n');
         return { content: [{ type: 'text', text: summary }] };
     }

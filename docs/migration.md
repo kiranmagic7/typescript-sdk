@@ -874,6 +874,42 @@ There is no migration path for the removed surface; it was always `@experimental
 
 `TaskCreationParams.ttl` (the storage-layer creation parameter) is now `number | undefined`; `null` is no longer accepted. Per the MCP spec, `null` TTL (unlimited lifetime) is only valid in server responses (`Task.ttl`), not in creation requests. Omit `ttl` to let the store decide. This is a storage-interface change and is independent of the Protocol-level removals above.
 
+## 2026-06 Stateless Protocol Support (SEP-2575, SEP-2567, SEP-2322)
+
+`Server` and `Client` now support the 2026-06 stateless connection model alongside the existing pre-2026 model. They remain the same classes (still extending `Protocol`); the new behavior is additive.
+
+### What changed
+
+- **`Client.connect()` auto-probes.** On connect, the client sends `server/discover` via the transport's `sendAndReceive` path. If the server responds, the client operates in stateless mode; typed methods (`callTool`, `listTools`, etc.) route via `sendAndReceive` and the MRTR loop. If discover fails (server doesn't support it, transport doesn't have `sendAndReceive`), the client falls back to the legacy `initialize` handshake. Existing code works unchanged.
+- **`Server` gained a stateless dispatch path.** `server.statelessHandlers()` returns `{dispatch, listen}` for transports to call. `connect(transport)` wires this automatically via `transport.setStatelessHandlers?.()`. Handlers registered with `setRequestHandler` serve both paths.
+- **`handleHttp(server, opts)`** is a new Fetch-API entry point: one shared `Server` instance, no `Transport`, no `connect()`. Returns `(Request) => Promise<Response>`. See `examples/server/src/honoWebStandardStreamableHttp.ts`.
+- **`client.subscribe(filter)`** opens a `subscriptions/listen` stream for list-changed and resource-updated notifications (the 2026-06 replacement for unsolicited notifications and `resources/subscribe`).
+- **`Transport` interface gained two optional methods:** `setStatelessHandlers?(handlers)` (server side) and `sendAndReceive?(req, opts?)` (client side). Implement these in custom transports to support 2026-06.
+
+### Prefer `ctx.mcpReq.*` for server-to-client interactions
+
+Inside a tool/prompt/resource handler, use `ctx.mcpReq.{elicitInput, requestSampling, listRoots, log}` instead of the top-level `server.elicitInput()` / `server.createMessage()` / `server.listRoots()` / `server.sendLoggingMessage()`. The `ctx.mcpReq.*` form works under **both** protocols: with a pre-2026 client it sends a real request; with a 2026-06 client it returns an `input_required` result and the client retries with the response embedded (SEP-2322 MRTR).
+
+| Top-level (pre-2026 only) | Handler-context (both protocols) |
+| --- | --- |
+| `server.createMessage(params)` | `ctx.mcpReq.requestSampling(params)` |
+| `server.elicitInput(params)` | `ctx.mcpReq.elicitInput(params)` |
+| `server.listRoots()` | `ctx.mcpReq.listRoots()` |
+| `server.sendLoggingMessage({level, data})` | `ctx.mcpReq.log(level, data)` |
+| `server.getClientCapabilities()` | `ctx.clientCapabilities` |
+
+The top-level methods still exist and work when a pre-2026 client is connected. They are not removed.
+
+MRTR via `InputRequiredError` works for handlers registered via `setRequestHandler`; `fallbackRequestHandler` is not wrapped by middleware (matches pre-existing behavior).
+
+### Tests pinning pre-2026
+
+If a test exercises pre-2026 connection-model behavior (e.g., `oninitialized`, server-initiated requests, in-band logging) and breaks because the auto-probe now succeeds, construct the client with `supportedProtocolVersions` filtered to pre-2026 versions only, or use a fixture like `LegacyTestClient` that does so. The probe falls back to legacy when no mutual stateless version exists.
+
+### Shared instances
+
+A single `Server` instance can safely serve many concurrent 2026-06 clients via `handleHttp` or a connected transport's per-message router. For pre-2026 clients, the existing per-session guidance still applies (the legacy path's `_clientCapabilities` is per-connection state).
+
 ## Enhancements
 
 ### Automatic JSON Schema validator selection by runtime

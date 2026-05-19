@@ -524,7 +524,31 @@ Access validators explicitly:
 - AJV (Node.js): `import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server';`
 - CF Worker: `import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server/validators/cf-worker';`
 
-## 15. Migration Steps (apply in this order)
+## 15. 2026-06 Stateless Support (SEP-2575/2567/2322)
+
+`Server`/`Client` are the same classes (still extend `Protocol`); 2026-06 support is additive. `Client.connect()` auto-probes `server/discover` and falls back to legacy `initialize`. `setRequestHandler` is unchanged.
+
+**Prefer `ctx.mcpReq.*` inside handlers** (works under both protocols). Inside tool/prompt/resource handler bodies where `ctx` (the handler's second argument) is in scope, replace `<expr>.server.X()` (or `server.X()` on a low-level `Server`) with `ctx.mcpReq.X()`. The `<expr>` prefix varies (`mcpServer.server`, `this.server`, just `server`), so search for `.X(` and rewrite by hand:
+
+| Find calls to | Replace with |
+| --- | --- |
+| `.createMessage(` | `ctx.mcpReq.requestSampling(` |
+| `.elicitInput(` | `ctx.mcpReq.elicitInput(` |
+| `.listRoots(` | `ctx.mcpReq.listRoots(` |
+| `.sendLoggingMessage({ level, data })` | `ctx.mcpReq.log(level, data)` |
+| `.getClientCapabilities()` | `ctx.clientCapabilities` |
+
+Add `ctx` to the handler signature if not already present. For tools with an `inputSchema`: `async (args) =>` → `async (args, ctx) =>`. For tools WITHOUT an `inputSchema`: `async () =>` → `async ctx =>` (single parameter).
+
+The top-level `server.createMessage()` etc. still work with a connected pre-2026 client; this migration is recommended but not required.
+
+`ctx.mcpReq.requestSampling` keeps the same overload narrowing as `server.createMessage`: when `params.tools` is statically present the result type is `CreateMessageResultWithTools`; when statically absent it is `CreateMessageResult`. If `tools` is conditional at the call site, the result is the union; add a runtime `Array.isArray(result.content)` check before indexing.
+
+MRTR via `InputRequiredError` works for handlers registered via `setRequestHandler`; `fallbackRequestHandler` is not wrapped by middleware (matches pre-existing behavior).
+
+For tests that exercise pre-2026 connection-model behavior, construct the test client with `supportedProtocolVersions` filtered to pre-2026 versions only.
+
+## 16. Migration Steps (apply in this order)
 
 1. Update `package.json`: `npm uninstall @modelcontextprotocol/sdk`, install the appropriate v2 packages
 2. Replace all imports from `@modelcontextprotocol/sdk/...` using the import mapping tables (sections 3-4), including `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport`
@@ -536,4 +560,5 @@ Access validators explicitly:
 8. If using server SSE transport, migrate to Streamable HTTP
 9. If using server auth from the SDK: RS helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`) → `@modelcontextprotocol/express`; AS helpers → external IdP/OAuth library
 10. If relying on `listTools()`/`listPrompts()`/etc. throwing on missing capabilities, set `enforceStrictCapabilities: true`
-11. Verify: build with `tsc` / run tests
+11. Inside tool/prompt/resource handlers, replace `server.createMessage`/`elicitInput`/`listRoots`/`sendLoggingMessage` with `ctx.mcpReq.*` per section 15
+12. Verify: build with `tsc` / run tests
