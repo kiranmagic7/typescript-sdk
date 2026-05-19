@@ -544,7 +544,7 @@ All requests have a 60-second default timeout. Pass a custom `timeout` in the op
 ```ts source="../examples/client/src/clientGuide.examples.ts#errorHandling_timeout"
 try {
     const result = await client.callTool(
-        { name: 'slow-operation', arguments: {} },
+        { name: 'slow-task', arguments: {} },
         { timeout: 120_000 } // 2 minutes instead of the default 60 seconds
     );
     console.log(result.content);
@@ -581,7 +581,7 @@ let lastToken: string | undefined;
 const result = await client.request(
     {
         method: 'tools/call',
-        params: { name: 'long-running-operation', arguments: {} }
+        params: { name: 'long-running-task', arguments: {} }
     },
     {
         resumptionToken: lastToken,
