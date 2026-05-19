@@ -164,7 +164,8 @@ When a request arrives from the remote side:
     - Looks up handler in `_requestHandlers` map (keyed by method name)
     - Creates `BaseContext` with `signal`, `sessionId`, `sendNotification`, `sendRequest`, etc.
     - Calls `buildContext()` to let subclasses enrich the context (e.g., Server adds HTTP request info)
-    - Invokes handler, sends JSON-RPC response back via transport
+    - Calls `dispatcher.dispatch()` which looks up the handler (keyed by method name), runs the middleware chain, invokes the handler, and wraps the result as a JSON-RPC response
+    - Sends the response back via transport
 4. **Handler** was registered via `setRequestHandler('method', handler)`
 
 ### Handler Registration
