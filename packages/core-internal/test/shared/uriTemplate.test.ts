@@ -312,3 +312,43 @@ describe('UriTemplate', () => {
         });
     });
 });
+
+describe('RFC 6570 optional query parameters (§3.2.8)', () => {
+    it('should match URI with no query params when template has optional params', () => {
+        const template = new UriTemplate('dom://{pageId}{?selector,includeAttributes,includeText}');
+        const result = template.match('dom://page-123');
+        expect(result).toEqual({ pageId: 'page-123' });
+    });
+
+    it('should match URI with one of several optional query params', () => {
+        const template = new UriTemplate('dom://{pageId}{?selector,includeAttributes,includeText}');
+        const result = template.match('dom://page-123?selector=body');
+        expect(result).not.toBeNull();
+        expect(result!.selector).toBe('body');
+        expect(result!.pageId).toBe('page-123');
+    });
+
+    it('should match URI with query params in different order than template', () => {
+        const template = new UriTemplate('dom://{pageId}{?selector,includeAttributes,includeText}');
+        const result = template.match('dom://page-123?includeText=true&selector=body');
+        expect(result).not.toBeNull();
+        expect(result!.selector).toBe('body');
+        expect(result!.includeText).toBe('true');
+    });
+
+    it('should match URI with all optional query params supplied', () => {
+        const template = new UriTemplate('dom://{pageId}{?selector,includeAttributes,includeText}');
+        const result = template.match('dom://page-123?selector=body&includeAttributes=true&includeText=true');
+        expect(result).toEqual({
+            pageId: 'page-123',
+            selector: 'body',
+            includeAttributes: 'true',
+            includeText: 'true'
+        });
+    });
+
+    it('should match simple path template without query params unchanged', () => {
+        const template = new UriTemplate('/users/{id}');
+        expect(template.match('/users/42')).toEqual({ id: '42' });
+    });
+});

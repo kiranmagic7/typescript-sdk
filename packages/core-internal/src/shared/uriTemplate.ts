@@ -211,14 +211,11 @@ export class UriTemplate {
         }
 
         if (part.operator === '?' || part.operator === '&') {
-            for (let i = 0; i < part.names.length; i++) {
-                const name = part.names[i]!;
-                const prefix = i === 0 ? '\\' + part.operator : '&';
-                patterns.push({
-                    pattern: prefix + this.escapeRegExp(name) + '=([^&]+)',
-                    name
-                });
-            }
+            // Query parameters are optional and order-independent per RFC 6570.
+            // Emit a single optional sentinel pattern that matches the start of the
+            // query string (or nothing) so the path regex still anchors correctly.
+            // Actual extraction is handled in match() via URLSearchParams.
+            patterns.push({ pattern: String.raw`(?:\?[^#]*)?`, name: '' });
             return patterns;
         }
 
@@ -227,7 +224,9 @@ export class UriTemplate {
 
         switch (part.operator) {
             case '': {
-                pattern = part.exploded ? '([^/,]+(?:,[^/,]+)*)' : '([^/,]+)';
+                // RFC 3986 §3: '?' starts the query component and '#' starts the
+                // fragment — a simple string variable must not consume either.
+                pattern = part.exploded ? '([^/?#,]+(?:,[^/?#,]+)*)' : '([^/?#,]+)';
                 break;
             }
             case '+':
@@ -256,6 +255,9 @@ export class UriTemplate {
         UriTemplate.validateLength(uri, MAX_TEMPLATE_LENGTH, 'URI');
         let pattern = '^';
         const names: Array<{ name: string; exploded: boolean }> = [];
+        // Collect query-parameter variable names from {?…} and {&…} parts so we
+        // can extract them from the parsed query string after the path regex matches.
+        const queryVarNames: string[] = [];
 
         for (const part of this.parts) {
             if (typeof part === 'string') {
@@ -264,7 +266,14 @@ export class UriTemplate {
                 const patterns = this.partToRegExp(part);
                 for (const { pattern: partPattern, name } of patterns) {
                     pattern += partPattern;
-                    names.push({ name, exploded: part.exploded });
+                    // Sentinel name '' marks the optional-query-string slot emitted
+                    // by partToRegExp for '?'/'&' operators — skip it for path capture.
+                    if (name !== '') {
+                        names.push({ name, exploded: part.exploded });
+                    }
+                }
+                if (part.operator === '?' || part.operator === '&') {
+                    queryVarNames.push(...part.names);
                 }
             }
         }
@@ -283,6 +292,21 @@ export class UriTemplate {
             const cleanName = name.replace('*', '');
 
             result[cleanName] = exploded && value.includes(',') ? value.split(',') : value;
+        }
+
+        // Extract optional, order-independent query parameters per RFC 6570 §3.2.8.
+        if (queryVarNames.length > 0) {
+            const qIdx = uri.indexOf('?');
+            if (qIdx !== -1) {
+                const params = new URLSearchParams(uri.slice(qIdx + 1));
+                for (const name of queryVarNames) {
+                    const cleanName = name.replace('*', '');
+                    const value = params.get(cleanName);
+                    if (value !== null) {
+                        result[cleanName] = value;
+                    }
+                }
+            }
         }
 
         return result;
